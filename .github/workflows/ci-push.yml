@@ -1,0 +1,39 @@
+name: Kheops-compiled PUSH run
+env:
+  REPOSITORY_DIR: "./${{ github.event.repository.name }}"  # inside runner
+  WORKSPACE_DIR: "/tmp"                                    # inside Kheops-compiled container
+  PROJECT_DIR: "/tmp/src"                                 # inside Kheops-compiled container
+  CONFIG_PATH: "/tmp/.kheops/input-configuration.json"    # inside Kheops-compiled container
+  EXTERNAL_PARSER_PATH: "/angular_parser"                        # inside Kheops-compiled container
+  INPUT_PARSER: angular
+  OUTPUT_TYPE: text
+  LOG_LEVEL: debug
+on:
+  push:
+    branches:
+      - main
+    tags: '*'
+jobs:
+  build:
+    name: Kheops-compiled Docker ${{ github.event_name }}
+    runs-on: [ubuntu-latest]
+    steps:
+      - name: Checkout current project repository
+        uses: actions/checkout@v3
+        with:
+          path: ${{ env.REPOSITORY_DIR }}
+      - id: pull_docker_image
+        name: Pull Kheops-compiled container image
+        run: |
+          docker pull ghcr.io/oxoaresearch/kheops-compiled:latest
+      - id: run_docker_image
+        name: Run Kheops-compiled
+        run: |
+          docker run --volume=${{ env.REPOSITORY_DIR }}:${{ env.WORKSPACE_DIR }} \
+                     ghcr.io/oxoaresearch/kheops-compiled:latest kheopscli/bin/kheopscli \
+                        --project-dir ${{ env.PROJECT_DIR }} \
+                        --config-path ${{ env.CONFIG_PATH }} \
+                        --input-parser ${{ env.INPUT_PARSER }} \
+                        --external-parser-path ${{ env.EXTERNAL_PARSER_PATH }} \
+                        --output-type ${{ env.OUTPUT_TYPE }} \
+                        --log-level ${{ env.LOG_LEVEL }}

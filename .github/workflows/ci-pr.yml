@@ -1,0 +1,76 @@
+name: Kheops-compiled PULL REQUEST run
+env:
+  REPOSITORY_DIR: "./${{ github.event.repository.name }}"       # inside runner
+  WORKSPACE_DIR: "/workspace"                                   # inside Kheops-compiled container
+  PROJECT_DIR: "/workspace/src"                                 # inside Kheops-compiled container
+  CONFIG_PATH: "/workspace/.kheops/input-configuration.json"    # inside Kheops-compiled container
+  EXTERNAL_PARSER_PATH: "/angular_parser"                             # inside Kheops-compiled container
+  INPUT_PARSER: angular
+  #OUTPUT_TYPE: text
+  OUTPUT_DIR: "/output"
+  LOG_LEVEL: debug
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    name: Kheops-compiled Docker ${{ github.event_name }}
+    runs-on: [ubuntu-latest]
+    steps:
+      - name: Checkout current project repository
+        uses: actions/checkout@v3
+        with:
+          path: ${{ env.REPOSITORY_DIR }}
+      - name: Comment PR
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: 'Testing architecture ...'
+          comment_tag: kheops_status_tag
+      - id: pull_kheops_docker_image
+        name: Pull Kheops-compiled docker image
+        run: |
+          docker pull ghcr.io/oxoaresearch/kheops-compiled:latest
+      - id: pull_d2_docker_image
+        name: Pull D2 docker image
+        run: |
+          docker pull terrastruct/d2:v0.6.5
+      - id: run_docker_image
+        name: Run Kheops-compiled
+        env:
+          IMGBB_KEY: ${{ secrets.IMGBB_KEY }}
+        run: |
+          mkdir -p ./output
+          echo 'DATA_DUMP<<EOF' >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          docker run --volume=${{ env.REPOSITORY_DIR }}:${{ env.WORKSPACE_DIR }} \
+                     ghcr.io/oxoaresearch/kheops-compiled:latest kheopscli/bin/kheopscli \
+                        --project-dir ${{ env.PROJECT_DIR }} \
+                        --config-path ${{ env.CONFIG_PATH }} \
+                        --input-parser ${{ env.INPUT_PARSER }} \
+                        --external-parser-path ${{ env.EXTERNAL_PARSER_PATH }} \
+                        --output-type text \
+                        --log-level ${{ env.LOG_LEVEL }}>> $GITHUB_OUTPUT
+
+          docker run --volume=${{ env.REPOSITORY_DIR }}:${{ env.WORKSPACE_DIR }} \
+                     --volume=./output:${{ env.OUTPUT_DIR }} \
+                     ghcr.io/oxoaresearch/kheops-compiled:latest kheopscli/bin/kheopscli \
+                        --project-dir ${{ env.PROJECT_DIR }} \
+                        --config-path ${{ env.CONFIG_PATH }} \
+                        --input-parser ${{ env.INPUT_PARSER }} \
+                        --external-parser-path ${{ env.EXTERNAL_PARSER_PATH }} \
+                        --output-type diagram \
+                        --diagram-backend d2 \
+                        --log-level ${{ env.LOG_LEVEL }} > ./output/diagram.d2
+
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/home/debian/src" terrastruct/d2:v0.6.5 ./output/diagram.d2 ./output/diagram.png
+          echo '```' >> $GITHUB_OUTPUT
+
+          echo "![Diagram]($(curl -X POST  "https://api.imgbb.com/1/upload" -F "key=$IMGBB_KEY" -F "image=@./output/diagram.png" | jq -r '.data.image.url'))" >> $GITHUB_OUTPUT
+
+          echo 'EOF' >> $GITHUB_OUTPUT
+      - name: Edit PR comment
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          message: ${{steps.run_docker_image.outputs.DATA_DUMP}}
+          comment_tag: kheops_status_tag
